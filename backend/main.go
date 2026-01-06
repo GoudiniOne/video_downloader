@@ -56,7 +56,7 @@ func main() {
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Timeout(10 * time.Minute))
+	r.Use(chimiddleware.Timeout(6 * time.Hour)) // Extended for long videos
 
 	// CORS
 	r.Use(cors.Handler(middleware.CORS()))
@@ -82,7 +82,7 @@ func main() {
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 10 * time.Minute, // Long timeout for downloads
+		WriteTimeout: 6 * time.Hour, // Extended for long video downloads
 		IdleTimeout:  60 * time.Second,
 	}
 
