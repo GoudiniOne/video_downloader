@@ -1,15 +1,17 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, AlertCircle, RefreshCw, Youtube, Clock, CheckCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useDisclaimer } from './hooks/useDisclaimer';
+import { useDownloadQueue } from './hooks/useDownloadQueue';
 import {
   DisclaimerModal,
   UrlInput,
   VideoPreview,
   FormatSelector,
   DownloadButton,
+  QueuePanel,
 } from './components';
-import { analyzeUrl, downloadFile } from './api/client';
+import { analyzeUrl, downloadFile, getThumbnailUrl } from './api/client';
 import type { VideoInfo, Format, AppState } from './types';
 
 function App() {
@@ -20,6 +22,18 @@ function App() {
   const [currentUrl, setCurrentUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [hasActiveDownload, setHasActiveDownload] = useState(false);
+
+  const {
+    items: queueItems,
+    currentItem: queueCurrentItem,
+    isDownloading: isQueueDownloading,
+    addToQueue,
+    removeItem: removeFromQueue,
+    canAddMore,
+  } = useDownloadQueue();
+
+  const showQueueMode = hasActiveDownload || isQueueDownloading;
 
   const handleAnalyze = useCallback(async (url: string) => {
     setError(null);
@@ -43,24 +57,63 @@ function App() {
   }, []);
 
   const handleDownload = useCallback(async () => {
-    if (!currentUrl || !selectedFormat) return;
+    if (!currentUrl || !selectedFormat || !video) return;
 
-    setState('downloading');
+    // If there's already an active download (main or queue), add to queue
+    if (showQueueMode && state !== 'processing' && state !== 'downloading') {
+      if (!canAddMore) {
+        setError('Очередь заполнена. Максимум 3 загрузки одновременно.');
+        return;
+      }
+
+      const thumbnailUrl = video.thumbnail || getThumbnailUrl(currentUrl);
+      const added = addToQueue({
+        url: currentUrl,
+        title: video.title,
+        thumbnail: thumbnailUrl,
+        formatId: selectedFormat.id,
+        formatType: selectedFormat.type,
+      });
+
+      if (!added) {
+        setError('Не удалось добавить в очередь');
+        return;
+      }
+
+      // Reset form for next video
+      setVideo(null);
+      setSelectedFormat(null);
+      setCurrentUrl('');
+      setState('idle');
+      return;
+    }
+
+    // Direct download
+    setState('processing');
     setDownloadProgress(0);
+    setHasActiveDownload(true);
 
     try {
-      await downloadFile(currentUrl, selectedFormat.id, selectedFormat.type, (progress) => {
-        setDownloadProgress(progress);
-      });
-      
-      // Download complete!
+      await downloadFile(
+        currentUrl,
+        selectedFormat.id,
+        selectedFormat.type,
+        (progress) => {
+          setDownloadProgress(progress);
+        },
+        () => {
+          setState('downloading');
+        },
+      );
       setState('ready');
       setDownloadProgress(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка скачивания');
       setState('error');
+    } finally {
+      setHasActiveDownload(false);
     }
-  }, [currentUrl, selectedFormat]);
+  }, [currentUrl, selectedFormat, video, showQueueMode, state, canAddMore, addToQueue]);
 
   const handleReset = () => {
     setState('idle');
@@ -77,7 +130,7 @@ function App() {
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-          className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full"
+          className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full"
         />
       </div>
     );
@@ -89,145 +142,123 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-main">
-      <div className="min-h-screen flex flex-col items-center px-6 py-8">
-        {/* Spacer top */}
+      <div className="noise-overlay" />
+      <div className="grid-pattern" />
+
+      <div className="min-h-screen flex flex-col items-center px-6 py-12 relative z-10">
         <div className="flex-1 min-h-8 max-h-24" />
 
         {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: -30 }}
+          initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
           className="text-center mb-10"
         >
-          <motion.div 
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-cyan-500 to-blue-600 mb-6 shadow-2xl shadow-cyan-500/30"
+          <motion.div
+            initial={{ scale: 0, rotate: -180 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ delay: 0.1, type: 'spring', stiffness: 200, damping: 15 }}
+            className="inline-flex items-center justify-center w-18 h-18 rounded-2xl accent-gradient mb-7 accent-glow"
           >
-            <Download className="w-10 h-10 text-white" />
+            <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
           </motion.div>
-          
-          <motion.h1 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight"
+
+          <motion.h1
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25, duration: 0.6 }}
+            className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4"
           >
-            Video Downloader
+            <span className="accent-gradient-text">Video</span>{' '}
+            <span className="text-white">Downloader</span>
           </motion.h1>
-          
-          <motion.p 
+
+          <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="text-lg text-gray-400"
+            className="text-base text-gray-500 font-light"
           >
-            Скачивайте видео с популярных платформ
+            Скачивайте видео быстро и без ограничений
           </motion.p>
         </motion.div>
 
-        {/* Supported Platforms */}
+        {/* Platform badges */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-          className="flex flex-wrap justify-center gap-4 mb-20"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5, duration: 0.6 }}
+          className="flex flex-wrap justify-center gap-3 mb-14"
         >
-          {/* YouTube - Active */}
-          <div className="flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-white/5 border border-white/10">
-            <Youtube className="w-4 h-4 text-red-500" />
-            <span className="text-white font-medium text-xs">YouTube</span>
-            <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-          </div>
-
-          {/* Instagram - Coming Soon */}
-          <div className="flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-white/5 border border-white/10 opacity-50">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="url(#ig-grad2)">
-              <defs>
-                <linearGradient id="ig-grad2" x1="0%" y1="100%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#FFDC80" />
-                  <stop offset="50%" stopColor="#F77737" />
-                  <stop offset="100%" stopColor="#C13584" />
-                </linearGradient>
-              </defs>
-              <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
-            </svg>
-            <span className="text-gray-400 font-medium text-xs">Instagram</span>
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-          </div>
-
-          {/* TikTok - Coming Soon */}
-          <div className="flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-white/5 border border-white/10 opacity-50">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="white">
-              <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
-            </svg>
-            <span className="text-gray-400 font-medium text-xs">TikTok</span>
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-          </div>
+          <PlatformBadge platform="YouTube" icon="youtube" active />
+          <PlatformBadge platform="Instagram" icon="instagram" soon />
+          <PlatformBadge platform="TikTok" icon="tiktok" soon />
         </motion.div>
 
         {/* URL Input */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.5 }}
-          className="w-full max-w-xl mt-4"
+          transition={{ delay: 0.6, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-2xl"
         >
           <UrlInput
             onAnalyze={handleAnalyze}
             isLoading={state === 'analyzing'}
-            disabled={state === 'downloading'}
+            disabled={false}
           />
         </motion.div>
 
-        {/* Error Message */}
+        {/* Error */}
         <AnimatePresence>
           {state === 'error' && error && (
             <motion.div
-              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              initial={{ opacity: 0, y: -10, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              className="w-full max-w-xl mt-6 p-5 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center gap-4"
+              exit={{ opacity: 0, y: -10, scale: 0.97 }}
+              className="w-full max-w-2xl mt-8 px-6 py-5 rounded-2xl bg-rose-500/8 border border-rose-500/20 flex items-center gap-4"
             >
-              <div className="p-2 rounded-xl bg-red-500/20 flex-shrink-0">
-                <AlertCircle className="w-5 h-5 text-red-400" />
+              <div className="p-2.5 rounded-xl bg-rose-500/15 flex-shrink-0">
+                <AlertCircle className="w-4 h-4 text-rose-400" />
               </div>
-              <p className="text-red-300 flex-1 text-sm">{error}</p>
+              <p className="text-rose-300 flex-1 text-sm font-light">{error}</p>
               <button
                 onClick={handleReset}
-                className="p-2 hover:bg-red-500/20 rounded-xl transition-colors flex-shrink-0"
+                className="p-2.5 hover:bg-rose-500/15 rounded-xl transition-colors flex-shrink-0"
               >
-                <RefreshCw className="w-5 h-5 text-red-400" />
+                <RefreshCw className="w-4 h-4 text-rose-400" />
               </button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Video Info and Format Selection */}
+        {/* Video results */}
         <AnimatePresence>
           {video && state !== 'error' && (
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -30 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-              className="w-full max-w-xl mt-12"
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full max-w-2xl mt-12 space-y-8"
             >
-              {/* Video Preview */}
-              <div className="mb-8">
-                <VideoPreview video={video} />
-              </div>
+              <VideoPreview video={video} />
 
-              {/* Format Selector */}
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="glass-card rounded-2xl p-6 mb-8"
+                transition={{ delay: 0.15 }}
+                className="glass-card-elevated rounded-2xl p-7 md:p-8"
               >
-                <h3 className="text-lg font-semibold text-white mb-6">Выберите формат</h3>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-1 rounded-full accent-gradient flex-shrink-0 self-stretch" />
+                  <h3 className="text-base font-semibold text-white py-0.5">Формат загрузки</h3>
+                </div>
                 <FormatSelector
                   formats={video.formats}
                   selectedFormat={selectedFormat}
@@ -235,51 +266,109 @@ function App() {
                 />
               </motion.div>
 
-              {/* Download Button */}
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="mb-6"
+                transition={{ delay: 0.25 }}
               >
                 <DownloadButton
                   onClick={handleDownload}
-                  disabled={!selectedFormat}
+                  disabled={!selectedFormat || (showQueueMode && state !== 'processing' && state !== 'downloading' && !canAddMore)}
+                  isProcessing={state === 'processing'}
                   isDownloading={state === 'downloading'}
+                  isQueueMode={showQueueMode && state === 'ready'}
                   progress={downloadProgress}
                 />
               </motion.div>
 
-              {/* New Download Button */}
               <motion.button
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.4 }}
                 onClick={handleReset}
-                className="w-full py-4 text-gray-400 hover:text-white transition-colors flex items-center justify-center gap-2 rounded-2xl hover:bg-white/5"
+                className="w-full py-4 text-gray-500 hover:text-gray-300 transition-all flex items-center justify-center gap-2.5 rounded-xl hover:bg-white/3"
               >
-                <RefreshCw className="w-4 h-4 flex-shrink-0" />
+                <RefreshCw className="w-3.5 h-3.5 flex-shrink-0" />
                 <span className="text-sm font-medium">Скачать другое видео</span>
               </motion.button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Spacer bottom */}
-        <div className="flex-1 min-h-12 max-h-32" />
+        <div className="flex-1 min-h-10 max-h-28" />
 
         {/* Footer */}
         <motion.footer
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
+          transition={{ delay: 1 }}
           className="pb-6"
         >
-          <p className="text-gray-500 text-sm font-medium tracking-wide">
+          <p className="text-gray-600 text-xs font-medium tracking-widest uppercase">
             by goudini
           </p>
         </motion.footer>
       </div>
+
+      {/* Queue Panel */}
+      <AnimatePresence>
+        {queueItems.length > 0 && (
+          <QueuePanel
+            items={queueItems}
+            currentItem={queueCurrentItem}
+            onRemove={removeFromQueue}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function PlatformBadge({ platform, icon, active, soon }: {
+  platform: string;
+  icon: 'youtube' | 'instagram' | 'tiktok';
+  active?: boolean;
+  soon?: boolean;
+}) {
+  const iconMap = {
+    youtube: (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="#ef4444">
+        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+      </svg>
+    ),
+    instagram: (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="url(#ig-badge)">
+        <defs>
+          <linearGradient id="ig-badge" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#FFDC80" />
+            <stop offset="50%" stopColor="#F77737" />
+            <stop offset="100%" stopColor="#C13584" />
+          </linearGradient>
+        </defs>
+        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+      </svg>
+    ),
+    tiktok: (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="white">
+        <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+      </svg>
+    ),
+  };
+
+  return (
+    <div className={`flex items-center gap-2.5 h-10 px-5 rounded-full border text-xs font-medium transition-all ${
+      active
+        ? 'bg-white/5 border-white/10 text-white'
+        : 'bg-white/2 border-white/5 text-gray-500'
+    }`}>
+      {iconMap[icon]}
+      <span>{platform}</span>
+      {active && (
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+      )}
+      {soon && (
+        <span className="text-[10px] text-gray-600 ml-0.5">скоро</span>
+      )}
     </div>
   );
 }

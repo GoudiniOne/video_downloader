@@ -28,6 +28,15 @@ export interface ErrorResponse {
   error: string;
 }
 
-export type AppState = 'idle' | 'analyzing' | 'ready' | 'downloading' | 'error';
+export type AppState = 'idle' | 'analyzing' | 'ready' | 'processing' | 'downloading' | 'error';
 
-
+export interface QueueItem {
+  id: string;
+  url: string;
+  title: string;
+  thumbnail: string;
+  formatId: string;
+  formatType: string;
+  status: 'queued' | 'downloading' | 'done' | 'error';
+  progress: number;
+}

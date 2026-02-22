@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, Search, Loader2, X } from 'lucide-react';
+import { Search, Loader2, X } from 'lucide-react';
 import { PlatformIcon } from './PlatformIcon';
 
 interface UrlInputProps {
@@ -52,54 +52,57 @@ export function UrlInput({ onAnalyze, isLoading, disabled }: UrlInputProps) {
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <motion.div 
-        className="relative"
-        animate={{ scale: isFocused ? 1.01 : 1 }}
-        transition={{ duration: 0.2 }}
-      >
-        {/* Glow effect */}
+      <div className="relative">
         <AnimatePresence>
           {isFocused && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-2xl blur-lg"
+              transition={{ duration: 0.3 }}
+              className="absolute -inset-[1px] rounded-2xl"
+              style={{
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.3), rgba(99,102,241,0.2), rgba(6,182,212,0.3))',
+                filter: 'blur(12px)',
+              }}
             />
           )}
         </AnimatePresence>
-        
-        <div className={`relative glass-card rounded-2xl transition-all duration-300 ${isFocused ? 'border-cyan-500/50' : ''}`}>
-          <div className="flex items-center gap-4 p-4">
-            {/* Platform Icon */}
-            <div className="w-12 h-12 flex items-center justify-center flex-shrink-0">
+
+        <div
+          className={`relative rounded-2xl transition-all duration-500 ${
+            isFocused
+              ? 'glass-card-elevated'
+              : 'glass-card hover:border-white/10'
+          }`}
+          style={isFocused ? { borderColor: 'rgba(139, 92, 246, 0.3)' } : undefined}
+        >
+          <div className="flex items-center gap-4 p-5 md:p-6">
+            <div className="w-12 h-12 flex items-center justify-center flex-shrink-0 rounded-xl bg-white/5">
               <AnimatePresence mode="wait">
                 {platform ? (
                   <motion.div
                     key={platform}
-                    initial={{ scale: 0, rotate: -180 }}
+                    initial={{ scale: 0, rotate: -90 }}
                     animate={{ scale: 1, rotate: 0 }}
-                    exit={{ scale: 0, rotate: 180 }}
+                    exit={{ scale: 0, rotate: 90 }}
                     transition={{ type: 'spring', damping: 15 }}
-                    className="flex items-center justify-center"
                   >
-                    <PlatformIcon platform={platform} size={24} />
+                    <PlatformIcon platform={platform} size={20} />
                   </motion.div>
                 ) : (
                   <motion.div
-                    key="link"
+                    key="search"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="flex items-center justify-center"
                   >
-                    <Link className="w-6 h-6 text-gray-500" />
+                    <Search className="w-4 h-4 text-gray-600" />
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* Input */}
             <input
               type="text"
               value={url}
@@ -108,66 +111,63 @@ export function UrlInput({ onAnalyze, isLoading, disabled }: UrlInputProps) {
               onBlur={() => setIsFocused(false)}
               placeholder="Вставьте ссылку на видео..."
               disabled={disabled || isLoading}
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-white text-base placeholder-gray-500 py-3 h-12"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-white text-sm md:text-base placeholder-gray-600 py-3"
             />
 
-            {/* Clear button */}
             <AnimatePresence>
-              {url && (
+              {url && !isLoading && (
                 <motion.button
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0, opacity: 0 }}
                   type="button"
                   onClick={handleClear}
-                  className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"
+                  className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-white hover:bg-white/8 rounded-lg transition-all flex-shrink-0"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </motion.button>
               )}
             </AnimatePresence>
 
-            {/* Submit button */}
             <motion.button
-              whileHover={{ scale: isValidUrl && !isLoading ? 1.02 : 1 }}
-              whileTap={{ scale: isValidUrl && !isLoading ? 0.98 : 1 }}
+              whileHover={{ scale: isValidUrl && !isLoading ? 1.03 : 1 }}
+              whileTap={{ scale: isValidUrl && !isLoading ? 0.97 : 1 }}
               type="submit"
               disabled={!isValidUrl || isLoading || disabled}
-              className={`h-12 px-6 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all duration-300 flex-shrink-0 whitespace-nowrap ${
+              className={`h-12 px-6 rounded-xl font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-500 flex-shrink-0 ${
                 isValidUrl && !isLoading
-                  ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40'
-                  : 'bg-gray-700/50 text-gray-500 cursor-not-allowed'
+                  ? 'accent-gradient text-white accent-glow'
+                  : 'bg-white/5 text-gray-600 cursor-not-allowed'
               }`}
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
-                  <span>Поиск</span>
+                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                  <span className="hidden sm:inline">Анализ...</span>
                 </>
               ) : (
                 <>
-                  <Search className="w-5 h-5 flex-shrink-0" />
-                  <span>Найти</span>
+                  <Search className="w-4 h-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">Найти</span>
                 </>
               )}
             </motion.button>
           </div>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Coming soon message */}
       <AnimatePresence>
         {isComingSoon && (
-          <motion.p
-            initial={{ opacity: 0, y: -10 }}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="mt-4 text-amber-400 text-xs flex items-center justify-center gap-2"
+            exit={{ opacity: 0, y: -8 }}
+            className="mt-3 flex justify-center"
           >
-            <span className="px-3 py-1.5 rounded-lg bg-amber-500/20">
-              {platform === 'instagram' ? 'Instagram' : 'TikTok'} скоро будет поддерживаться
+            <span className="text-xs text-amber-400/80 bg-amber-500/8 border border-amber-500/15 px-4 py-2 rounded-lg">
+              {platform === 'instagram' ? 'Instagram' : 'TikTok'} — скоро
             </span>
-          </motion.p>
+          </motion.div>
         )}
       </AnimatePresence>
     </form>

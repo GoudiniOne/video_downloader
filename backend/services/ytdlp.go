@@ -71,6 +71,7 @@ func (s *YtDlpService) Analyze(ctx context.Context, url string) (*VideoInfo, err
 		"--no-download",
 		"--no-warnings",
 		"--no-playlist",
+		"--force-ipv4",
 		url,
 	)
 
@@ -172,6 +173,7 @@ func (s *YtDlpService) DownloadToFile(ctx context.Context, url, formatID, tempDi
 		"--no-warnings",
 		"--no-playlist",
 		"--no-mtime",
+		"--force-ipv4",
 	}
 
 	// For merged formats (video+audio), explicitly set output format to mp4

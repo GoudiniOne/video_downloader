@@ -1,67 +1,95 @@
 import { motion } from 'framer-motion';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, ListPlus, Server } from 'lucide-react';
 
 interface DownloadButtonProps {
   onClick: () => void;
   disabled: boolean;
+  isProcessing?: boolean;
   isDownloading: boolean;
-  progress?: number; // 0-100
+  isQueueMode?: boolean;
+  progress?: number;
 }
 
-export function DownloadButton({ onClick, disabled, isDownloading, progress = 0 }: DownloadButtonProps) {
+export function DownloadButton({ 
+  onClick, 
+  disabled, 
+  isProcessing,
+  isDownloading, 
+  isQueueMode, 
+  progress = 0 
+}: DownloadButtonProps) {
+  const isBusy = isProcessing || isDownloading;
+  const isStreaming = isDownloading && progress > 0;
+
   return (
     <motion.button
-      whileHover={{ scale: disabled ? 1 : 1.02 }}
-      whileTap={{ scale: disabled ? 1 : 0.98 }}
+      whileHover={{ scale: disabled ? 1 : 1.01 }}
+      whileTap={{ scale: disabled ? 1 : 0.99 }}
       onClick={onClick}
-      disabled={disabled || isDownloading}
-      className={`relative w-full py-5 rounded-2xl font-semibold text-base flex items-center justify-center gap-3 transition-all duration-500 overflow-hidden ${
+      disabled={disabled || isBusy}
+      className={`relative w-full py-[22px] rounded-2xl font-semibold text-base flex items-center justify-center gap-3 transition-all duration-500 overflow-hidden ${
         disabled
-          ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed'
-          : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-xl shadow-cyan-500/30 hover:shadow-cyan-500/50'
+          ? 'bg-white/4 text-gray-600 cursor-not-allowed border border-white/5'
+          : isProcessing
+            ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+            : isDownloading
+              ? 'bg-white/5 text-white border border-white/10'
+              : 'accent-gradient text-white accent-glow-strong hover:accent-glow-strong'
       }`}
     >
-      {/* Progress bar background */}
-      {isDownloading && (
+      {isStreaming && (
         <motion.div
           initial={{ width: '0%' }}
           animate={{ width: `${progress}%` }}
           transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="absolute inset-0 bg-gradient-to-r from-green-500 to-emerald-500"
+          className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-500 opacity-80"
         />
       )}
 
-      {/* Animated shine effect */}
-      {!disabled && !isDownloading && (
+      {isProcessing && (
+        <motion.div
+          animate={{ opacity: [0.3, 0.6, 0.3] }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+          className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-cyan-500/15 to-cyan-500/5"
+        />
+      )}
+
+      {!disabled && !isBusy && (
         <motion.div
           initial={{ x: '-100%', opacity: 0 }}
-          animate={{ x: '200%', opacity: [0, 1, 0] }}
-          transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut', repeatDelay: 1 }}
-          className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12"
+          animate={{ x: '200%', opacity: [0, 0.6, 0] }}
+          transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut', repeatDelay: 2 }}
+          className="absolute inset-0 w-1/4 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12"
         />
       )}
 
-      {/* Loading wave animation */}
-      {isDownloading && (
+      {(isProcessing || isDownloading) && (
         <motion.div
           animate={{ x: ['-100%', '100%'] }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
         />
       )}
 
-      {/* Content */}
-      <span className="relative flex items-center gap-3 z-10">
-        {isDownloading ? (
+      <span className="relative flex items-center gap-2.5 z-10">
+        {isProcessing ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
-            <span>
-              {progress > 0 ? `Загрузка ${progress}%` : 'Подготовка...'}
-            </span>
+            <Server className="w-4 h-4 animate-pulse flex-shrink-0" />
+            <span>Скачивание на сервере...</span>
+          </>
+        ) : isDownloading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+            <span>{progress > 0 ? `Загрузка ${progress}%` : 'Подготовка...'}</span>
+          </>
+        ) : isQueueMode ? (
+          <>
+            <ListPlus className="w-4 h-4 flex-shrink-0" />
+            <span>Добавить в очередь</span>
           </>
         ) : (
           <>
-            <Download className="w-5 h-5 flex-shrink-0" />
+            <Download className="w-4 h-4 flex-shrink-0" />
             <span>Скачать</span>
           </>
         )}

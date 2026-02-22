@@ -9,10 +9,10 @@ export function PlatformIcon({ platform, size = 24 }: PlatformIconProps) {
   if (!platform) {
     return (
       <div
-        className="rounded-lg bg-gray-700/50 flex items-center justify-center flex-shrink-0"
+        className="rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0"
         style={{ width: size, height: size }}
       >
-        <div className="w-2 h-2 rounded-full bg-gray-500" />
+        <div className="w-1.5 h-1.5 rounded-full bg-gray-600" />
       </div>
     );
   }
@@ -46,8 +46,8 @@ export function PlatformIcon({ platform, size = 24 }: PlatformIconProps) {
 
   return (
     <motion.div
-      initial={{ scale: 0, rotate: -180 }}
-      animate={{ scale: 1, rotate: 0 }}
+      initial={{ scale: 0 }}
+      animate={{ scale: 1 }}
       transition={{ type: 'spring', damping: 15, stiffness: 300 }}
       className="flex-shrink-0 flex items-center justify-center"
       style={{ width: size, height: size }}
@@ -56,5 +56,3 @@ export function PlatformIcon({ platform, size = 24 }: PlatformIconProps) {
     </motion.div>
   );
 }
-
-

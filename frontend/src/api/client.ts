@@ -47,7 +47,6 @@ export function getDownloadUrl(url: string, formatId: string, formatType?: strin
   return `${API_BASE}/download?${params.toString()}`;
 }
 
-// Get proxied thumbnail URL (avoids CORS issues with YouTube/Instagram)
 export function getThumbnailUrl(originalUrl: string): string {
   const params = new URLSearchParams({
     url: originalUrl,
@@ -55,32 +54,32 @@ export function getThumbnailUrl(originalUrl: string): string {
   return `${API_BASE}/thumbnail?${params.toString()}`;
 }
 
-// Download with progress tracking - returns a Promise that resolves when download completes
 export async function downloadFile(
   url: string,
   formatId: string,
   formatType?: string,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  onStreamingStart?: () => void,
 ): Promise<void> {
   const downloadUrl = getDownloadUrl(url, formatId, formatType);
-  
+
   const response = await fetch(downloadUrl);
-  
+
   if (!response.ok) {
-    throw new ApiError(response.status, 'Download failed');
+    const body = await response.json().catch(() => ({ error: 'Download failed' }));
+    throw new ApiError(response.status, body.error || 'Download failed');
   }
 
-  // Get filename from Content-Disposition header
+  onStreamingStart?.();
+
   const contentDisposition = response.headers.get('Content-Disposition');
   let filename = 'video.mp4';
   
   if (contentDisposition) {
-    // Try to get filename* (RFC 5987) first
     const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
     if (filenameStarMatch) {
       filename = decodeURIComponent(filenameStarMatch[1]);
     } else {
-      // Fallback to regular filename
       const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/i);
       if (filenameMatch) {
         filename = filenameMatch[1];
@@ -88,11 +87,9 @@ export async function downloadFile(
     }
   }
 
-  // Get content length for progress
   const contentLength = response.headers.get('Content-Length');
   const total = contentLength ? parseInt(contentLength, 10) : 0;
   
-  // Read response body as stream
   const reader = response.body?.getReader();
   if (!reader) {
     throw new Error('Failed to read response body');
@@ -106,7 +103,6 @@ export async function downloadFile(
     
     if (done) break;
     
-    // Convert Uint8Array to ArrayBuffer
     chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
     received += value.length;
     
@@ -115,10 +111,8 @@ export async function downloadFile(
     }
   }
 
-  // Combine chunks into blob
   const blob = new Blob(chunks);
   
-  // Create download link
   const blobUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = blobUrl;
@@ -127,7 +121,6 @@ export async function downloadFile(
   link.click();
   document.body.removeChild(link);
   
-  // Clean up
   URL.revokeObjectURL(blobUrl);
 }
 

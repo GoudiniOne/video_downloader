@@ -56,13 +56,13 @@ func (h *DownloadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		formatID = "best"
 	}
 
-	// Check if this is an audio-only download
 	isAudioOnly := formatType == "audio"
 
-	// Try to acquire semaphore (limit concurrent downloads)
 	if !h.semaphore.TryAcquire() {
-		h.logger.Warn("Too many concurrent downloads", "available", h.semaphore.Available())
-		http.Error(w, `{"error": "Server busy. Please try again in a moment."}`, http.StatusServiceUnavailable)
+		h.logger.Warn("Server busy, all download slots occupied")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"error": "Сервер занят. Попробуйте позже."}`))
 		return
 	}
 	defer h.semaphore.Release()
