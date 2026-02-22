@@ -2,16 +2,14 @@ import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useDisclaimer } from './hooks/useDisclaimer';
-import { useDownloadQueue } from './hooks/useDownloadQueue';
 import {
   DisclaimerModal,
   UrlInput,
   VideoPreview,
   FormatSelector,
   DownloadButton,
-  QueuePanel,
 } from './components';
-import { analyzeUrl, downloadFile, getThumbnailUrl } from './api/client';
+import { analyzeUrl, downloadFile } from './api/client';
 import type { VideoInfo, Format, AppState } from './types';
 
 function App() {
@@ -22,18 +20,6 @@ function App() {
   const [currentUrl, setCurrentUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const [hasActiveDownload, setHasActiveDownload] = useState(false);
-
-  const {
-    items: queueItems,
-    currentItem: queueCurrentItem,
-    isDownloading: isQueueDownloading,
-    addToQueue,
-    removeItem: removeFromQueue,
-    canAddMore,
-  } = useDownloadQueue();
-
-  const showQueueMode = hasActiveDownload || isQueueDownloading;
 
   const handleAnalyze = useCallback(async (url: string) => {
     setError(null);
@@ -57,41 +43,10 @@ function App() {
   }, []);
 
   const handleDownload = useCallback(async () => {
-    if (!currentUrl || !selectedFormat || !video) return;
+    if (!currentUrl || !selectedFormat) return;
 
-    // If there's already an active download (main or queue), add to queue
-    if (showQueueMode && state !== 'processing' && state !== 'downloading') {
-      if (!canAddMore) {
-        setError('Очередь заполнена. Максимум 3 загрузки одновременно.');
-        return;
-      }
-
-      const thumbnailUrl = video.thumbnail || getThumbnailUrl(currentUrl);
-      const added = addToQueue({
-        url: currentUrl,
-        title: video.title,
-        thumbnail: thumbnailUrl,
-        formatId: selectedFormat.id,
-        formatType: selectedFormat.type,
-      });
-
-      if (!added) {
-        setError('Не удалось добавить в очередь');
-        return;
-      }
-
-      // Reset form for next video
-      setVideo(null);
-      setSelectedFormat(null);
-      setCurrentUrl('');
-      setState('idle');
-      return;
-    }
-
-    // Direct download
     setState('processing');
     setDownloadProgress(0);
-    setHasActiveDownload(true);
 
     try {
       await downloadFile(
@@ -104,16 +59,15 @@ function App() {
         () => {
           setState('downloading');
         },
+        selectedFormat.size,
       );
       setState('ready');
       setDownloadProgress(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка скачивания');
       setState('error');
-    } finally {
-      setHasActiveDownload(false);
     }
-  }, [currentUrl, selectedFormat, video, showQueueMode, state, canAddMore, addToQueue]);
+  }, [currentUrl, selectedFormat]);
 
   const handleReset = () => {
     setState('idle');
@@ -123,6 +77,8 @@ function App() {
     setError(null);
     setDownloadProgress(0);
   };
+
+  const isDownloading = state === 'processing' || state === 'downloading';
 
   if (accepted === null) {
     return (
@@ -210,7 +166,7 @@ function App() {
           <UrlInput
             onAnalyze={handleAnalyze}
             isLoading={state === 'analyzing'}
-            disabled={false}
+            disabled={isDownloading}
           />
         </motion.div>
 
@@ -263,6 +219,7 @@ function App() {
                   formats={video.formats}
                   selectedFormat={selectedFormat}
                   onSelect={setSelectedFormat}
+                  disabled={isDownloading}
                 />
               </motion.div>
 
@@ -273,24 +230,25 @@ function App() {
               >
                 <DownloadButton
                   onClick={handleDownload}
-                  disabled={!selectedFormat || (showQueueMode && state !== 'processing' && state !== 'downloading' && !canAddMore)}
+                  disabled={!selectedFormat}
                   isProcessing={state === 'processing'}
                   isDownloading={state === 'downloading'}
-                  isQueueMode={showQueueMode && state === 'ready'}
                   progress={downloadProgress}
                 />
               </motion.div>
 
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                onClick={handleReset}
-                className="w-full py-4 text-gray-500 hover:text-gray-300 transition-all flex items-center justify-center gap-2.5 rounded-xl hover:bg-white/3"
-              >
-                <RefreshCw className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="text-sm font-medium">Скачать другое видео</span>
-              </motion.button>
+              {!isDownloading && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                  onClick={handleReset}
+                  className="w-full py-4 text-gray-500 hover:text-gray-300 transition-all flex items-center justify-center gap-2.5 rounded-xl hover:bg-white/3"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="text-sm font-medium">Скачать другое видео</span>
+                </motion.button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -309,17 +267,6 @@ function App() {
           </p>
         </motion.footer>
       </div>
-
-      {/* Queue Panel */}
-      <AnimatePresence>
-        {queueItems.length > 0 && (
-          <QueuePanel
-            items={queueItems}
-            currentItem={queueCurrentItem}
-            onRemove={removeFromQueue}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

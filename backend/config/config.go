@@ -11,15 +11,19 @@ type Config struct {
 	MaxConcurrent int
 	RateLimitRPM  int
 	YtDlpPath     string
+	CookiesFile   string
+	ProxyURL      string
 }
 
 func Load() *Config {
 	return &Config{
 		Port:          getEnv("PORT", "8080"),
 		AuthRequired:  getEnvBool("AUTH_REQUIRED", false),
-		MaxConcurrent: getEnvInt("MAX_CONCURRENT", 3),
-		RateLimitRPM:  getEnvInt("RATE_LIMIT_RPM", 10),
+		MaxConcurrent: getEnvInt("MAX_CONCURRENT", 5),
+		RateLimitRPM:  getEnvInt("RATE_LIMIT_RPM", 30),
 		YtDlpPath:     getEnv("YTDLP_PATH", "/usr/local/bin/yt-dlp"),
+		CookiesFile:   getEnv("COOKIES_FILE", ""),
+		ProxyURL:      getEnv("PROXY_URL", ""),
 	}
 }
 

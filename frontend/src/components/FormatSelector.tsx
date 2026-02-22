@@ -7,11 +7,12 @@ interface FormatSelectorProps {
   formats: Format[];
   selectedFormat: Format | null;
   onSelect: (format: Format) => void;
+  disabled?: boolean;
 }
 
 type TabType = 'audio' | 'video';
 
-export function FormatSelector({ formats, selectedFormat, onSelect }: FormatSelectorProps) {
+export function FormatSelector({ formats, selectedFormat, onSelect, disabled }: FormatSelectorProps) {
   const [activeTab, setActiveTab] = useState<TabType>('video');
 
   const groupedFormats = useMemo(() => {
@@ -47,11 +48,12 @@ export function FormatSelector({ formats, selectedFormat, onSelect }: FormatSele
           <button
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
+            disabled={disabled}
             className={`relative flex-1 flex items-center justify-center gap-2.5 py-3 px-5 rounded-lg font-medium text-sm transition-all duration-300 ${
               activeTab === tab.id
                 ? 'text-white'
                 : 'text-gray-500 hover:text-gray-300'
-            }`}
+            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {activeTab === tab.id && (
               <motion.div
@@ -82,11 +84,12 @@ export function FormatSelector({ formats, selectedFormat, onSelect }: FormatSele
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.03 }}
                 onClick={() => onSelect(format)}
+                disabled={disabled}
                 className={`w-full p-4 flex items-center gap-4 text-left rounded-xl transition-all duration-300 group ${
                   isSelected
                     ? 'bg-violet-500/12 border border-violet-500/25'
                     : 'bg-white/2 border border-transparent hover:bg-white/5 hover:border-white/8'
-                }`}
+                } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
                   isSelected

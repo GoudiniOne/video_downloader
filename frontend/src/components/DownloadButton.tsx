@@ -1,12 +1,11 @@
 import { motion } from 'framer-motion';
-import { Download, Loader2, ListPlus, Server } from 'lucide-react';
+import { Download, Loader2, Server } from 'lucide-react';
 
 interface DownloadButtonProps {
   onClick: () => void;
   disabled: boolean;
   isProcessing?: boolean;
   isDownloading: boolean;
-  isQueueMode?: boolean;
   progress?: number;
 }
 
@@ -15,7 +14,6 @@ export function DownloadButton({
   disabled, 
   isProcessing,
   isDownloading, 
-  isQueueMode, 
   progress = 0 
 }: DownloadButtonProps) {
   const isBusy = isProcessing || isDownloading;
@@ -81,11 +79,6 @@ export function DownloadButton({
           <>
             <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
             <span>{progress > 0 ? `Загрузка ${progress}%` : 'Подготовка...'}</span>
-          </>
-        ) : isQueueMode ? (
-          <>
-            <ListPlus className="w-4 h-4 flex-shrink-0" />
-            <span>Добавить в очередь</span>
           </>
         ) : (
           <>

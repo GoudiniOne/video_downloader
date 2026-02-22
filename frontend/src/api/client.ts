@@ -54,74 +54,96 @@ export function getThumbnailUrl(originalUrl: string): string {
   return `${API_BASE}/thumbnail?${params.toString()}`;
 }
 
+// Download file with progress tracking
 export async function downloadFile(
   url: string,
   formatId: string,
   formatType?: string,
   onProgress?: (progress: number) => void,
   onStreamingStart?: () => void,
+  expectedSize?: number,
 ): Promise<void> {
   const downloadUrl = getDownloadUrl(url, formatId, formatType);
-
+  
   const response = await fetch(downloadUrl);
-
+  
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: 'Download failed' }));
-    throw new ApiError(response.status, body.error || 'Download failed');
+    const error = await response.json().catch(() => ({ error: 'Download failed' }));
+    throw new ApiError(response.status, error.error || 'Download failed');
   }
-
-  onStreamingStart?.();
-
+  
+  // Get filename from Content-Disposition header
   const contentDisposition = response.headers.get('Content-Disposition');
   let filename = 'video.mp4';
-  
   if (contentDisposition) {
-    const filenameStarMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-    if (filenameStarMatch) {
-      filename = decodeURIComponent(filenameStarMatch[1]);
+    // Try to get UTF-8 filename first (filename*=UTF-8'')
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match) {
+      filename = decodeURIComponent(utf8Match[1]);
     } else {
-      const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/i);
-      if (filenameMatch) {
-        filename = filenameMatch[1];
+      // Fallback to regular filename
+      const match = contentDisposition.match(/filename="?([^";\n]+)"?/i);
+      if (match) {
+        filename = match[1];
       }
     }
   }
-
-  const contentLength = response.headers.get('Content-Length');
-  const total = contentLength ? parseInt(contentLength, 10) : 0;
   
+  // Get total size for progress calculation (from header or expected size)
+  const contentLength = response.headers.get('Content-Length');
+  const totalSize = contentLength ? parseInt(contentLength, 10) : (expectedSize || 0);
+  
+  // Signal that streaming has started
+  onStreamingStart?.();
+  
+  // Read the response as a stream with progress
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new Error('Failed to read response body');
+    throw new ApiError(500, 'Streaming not supported');
   }
-
-  const chunks: ArrayBuffer[] = [];
-  let received = 0;
-
+  
+  const chunks: BlobPart[] = [];
+  let receivedSize = 0;
+  
   while (true) {
     const { done, value } = await reader.read();
     
     if (done) break;
     
-    chunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-    received += value.length;
+    chunks.push(value);
+    receivedSize += value.length;
     
-    if (total > 0 && onProgress) {
-      onProgress(Math.round((received / total) * 100));
+    // Report progress (use expected size if Content-Length not available)
+    if (onProgress) {
+      if (totalSize > 0) {
+        const progress = Math.min(Math.round((receivedSize / totalSize) * 100), 99);
+        onProgress(progress);
+      }
     }
   }
-
+  
+  // Final progress update
+  if (onProgress) {
+    onProgress(100);
+  }
+  
+  // Combine chunks into a single blob
   const blob = new Blob(chunks);
   
+  // Create download link and trigger download
   const blobUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = blobUrl;
   link.download = filename;
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
   
-  URL.revokeObjectURL(blobUrl);
+  // Cleanup
+  setTimeout(() => {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(blobUrl);
+  }, 100);
 }
 
 export async function checkHealth(): Promise<boolean> {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,14 +30,18 @@ type VideoInfo struct {
 }
 
 type YtDlpService struct {
-	ytdlpPath string
-	validator *Validator
+	ytdlpPath   string
+	cookiesFile string
+	proxyURL    string
+	validator   *Validator
 }
 
-func NewYtDlpService(ytdlpPath string, validator *Validator) *YtDlpService {
+func NewYtDlpService(ytdlpPath, cookiesFile, proxyURL string, validator *Validator) *YtDlpService {
 	return &YtDlpService{
-		ytdlpPath: ytdlpPath,
-		validator: validator,
+		ytdlpPath:   ytdlpPath,
+		cookiesFile: cookiesFile,
+		proxyURL:    proxyURL,
+		validator:   validator,
 	}
 }
 
@@ -66,14 +71,28 @@ func (s *YtDlpService) Analyze(ctx context.Context, url string) (*VideoInfo, err
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, s.ytdlpPath,
+	args := []string{
 		"--dump-json",
 		"--no-download",
 		"--no-warnings",
 		"--no-playlist",
 		"--force-ipv4",
-		url,
-	)
+	}
+
+	// Add cookies if file exists
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err == nil {
+			args = append(args, "--cookies", s.cookiesFile)
+		}
+	}
+
+	// Add proxy if configured
+	if s.proxyURL != "" {
+		args = append(args, "--proxy", s.proxyURL)
+	}
+
+	args = append(args, url)
+	cmd := exec.CommandContext(ctx, s.ytdlpPath, args...)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -154,94 +173,248 @@ func (s *YtDlpService) parseFormats(ytFormats []ytdlpFormat) []Format {
 	return formats
 }
 
-// DownloadToFile downloads video to a temp file and returns the file path and filename
-// isAudioOnly should be true when downloading audio-only formats
-func (s *YtDlpService) DownloadToFile(ctx context.Context, url, formatID, tempDir string, isAudioOnly bool) (filePath string, filename string, err error) {
-	_, err = s.validator.ValidateURL(url)
+// StreamInfo contains information for streaming a video
+type StreamInfo struct {
+	URL         string
+	Filename    string
+	ContentType string
+	Size        int64
+}
+
+// GetDirectURL gets the direct download URL for a format
+func (s *YtDlpService) GetDirectURL(ctx context.Context, url, formatID string) (*StreamInfo, error) {
+	_, err := s.validator.ValidateURL(url)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	// Generate unique filename prefix
-	timestamp := time.Now().UnixNano()
-	outputTemplate := filepath.Join(tempDir, fmt.Sprintf("%d_%%(title)s.%%(ext)s", timestamp))
+	// Build arguments to get URL and filename
+	args := []string{
+		"-f", formatID,
+		"--get-url",
+		"--get-filename",
+		"-o", "%(title)s.%(ext)s",
+		"--no-warnings",
+		"--no-playlist",
+		"--force-ipv4",
+	}
 
-	// Build arguments
+	// Add cookies if file exists
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err == nil {
+			args = append(args, "--cookies", s.cookiesFile)
+		}
+	}
+
+	// Add proxy if configured
+	if s.proxyURL != "" {
+		args = append(args, "--proxy", s.proxyURL)
+	}
+
+	args = append(args, url)
+	cmd := exec.CommandContext(ctx, s.ytdlpPath, args...)
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("failed to get URL: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("failed to get URL: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("invalid yt-dlp output")
+	}
+
+	// Last line is filename, everything before is URLs (could be multiple for merged formats)
+	filename := lines[len(lines)-1]
+	directURL := lines[0]
+
+	// Determine content type from extension
+	ext := filepath.Ext(filename)
+	contentType := "application/octet-stream"
+	switch ext {
+	case ".mp4":
+		contentType = "video/mp4"
+	case ".webm":
+		contentType = "video/webm"
+	case ".m4a":
+		contentType = "audio/mp4"
+	case ".mp3":
+		contentType = "audio/mpeg"
+	case ".opus":
+		contentType = "audio/opus"
+	}
+
+	return &StreamInfo{
+		URL:         directURL,
+		Filename:    filename,
+		ContentType: contentType,
+	}, nil
+}
+
+// GetDirectURLs gets direct download URLs for merged formats (video + audio separately)
+func (s *YtDlpService) GetDirectURLs(ctx context.Context, url, formatID string) (videoURL, audioURL, filename string, err error) {
+	_, err = s.validator.ValidateURL(url)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	// Build arguments to get URLs
+	args := []string{
+		"-f", formatID,
+		"--get-url",
+		"--get-filename",
+		"-o", "%(title)s.mp4",
+		"--no-warnings",
+		"--no-playlist",
+		"--force-ipv4",
+	}
+
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err == nil {
+			args = append(args, "--cookies", s.cookiesFile)
+		}
+	}
+
+	if s.proxyURL != "" {
+		args = append(args, "--proxy", s.proxyURL)
+	}
+
+	args = append(args, url)
+	cmd := exec.CommandContext(ctx, s.ytdlpPath, args...)
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", "", "", fmt.Errorf("failed to get URLs: %s", string(exitErr.Stderr))
+		}
+		return "", "", "", fmt.Errorf("failed to get URLs: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 3 {
+		return "", "", "", fmt.Errorf("invalid yt-dlp output for merged format")
+	}
+
+	// For merged formats: URL1 (video), URL2 (audio), filename
+	videoURL = lines[0]
+	audioURL = lines[1]
+	filename = lines[len(lines)-1]
+
+	return videoURL, audioURL, filename, nil
+}
+
+// DownloadMergedToFile downloads merged video+audio to temp file (original strategy)
+// yt-dlp handles merge with ffmpeg -c:a aac for AAC/Opus compatibility
+func (s *YtDlpService) DownloadMergedToFile(ctx context.Context, sourceURL, formatID string) (tempPath string, filename string, cleanup func(), err error) {
+	tempDir := "/tmp/viddown"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return "", "", nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	prefix := fmt.Sprintf("dl_%d_%%(id)s", time.Now().UnixNano())
+	outputTemplate := filepath.Join(tempDir, prefix+".%(ext)s")
+
 	args := []string{
 		"-f", formatID,
 		"-o", outputTemplate,
 		"--no-warnings",
 		"--no-playlist",
 		"--no-mtime",
+		"--force-overwrites",
+		"--merge-output-format", "mp4",
+		"--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -strict experimental",
+	}
+
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err == nil {
+			args = append(args, "--cookies", s.cookiesFile)
+		}
+	}
+
+	if s.proxyURL != "" {
+		args = append(args, "--proxy", s.proxyURL)
+	}
+
+	args = append(args, "--force-ipv4", sourceURL)
+
+	cmd := exec.CommandContext(ctx, s.ytdlpPath, args...)
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", "", nil, fmt.Errorf("yt-dlp failed: %s", string(exitErr.Stderr))
+		}
+		return "", "", nil, fmt.Errorf("yt-dlp failed: %w", err)
+	}
+
+	// Find the merged .mp4 file (most recently modified)
+	mp4Matches, _ := filepath.Glob(filepath.Join(tempDir, "dl_*.mp4"))
+	var downloadedPath string
+	var modTime int64
+	for _, m := range mp4Matches {
+		if info, err := os.Stat(m); err == nil && info.ModTime().Unix() > modTime {
+			modTime = info.ModTime().Unix()
+			downloadedPath = m
+		}
+	}
+	if downloadedPath == "" {
+		return "", "", nil, fmt.Errorf("could not find downloaded file")
+	}
+
+	cleanup = func() {
+		os.Remove(downloadedPath)
+	}
+
+	filename = filepath.Base(downloadedPath)
+	return downloadedPath, filename, cleanup, nil
+}
+
+// StreamToWriter streams video directly to a writer (for single format or audio-only)
+func (s *YtDlpService) StreamToWriter(ctx context.Context, url, formatID string, w io.Writer, isAudioOnly bool) (filename string, err error) {
+	_, err = s.validator.ValidateURL(url)
+	if err != nil {
+		return "", err
+	}
+
+	// Build arguments - output to stdout
+	args := []string{
+		"-f", formatID,
+		"-o", "-",
+		"--no-warnings",
+		"--no-playlist",
 		"--force-ipv4",
 	}
 
-	// For merged formats (video+audio), explicitly set output format to mp4
-	// This ensures ffmpeg properly merges the streams into a valid container
-	if strings.Contains(formatID, "+") {
-		args = append(args,
-			"--merge-output-format", "mp4",
-			"--postprocessor-args", "ffmpeg:-c:v copy -c:a aac -strict experimental",
-		)
-	} else if isAudioOnly {
-		// For audio-only formats, convert to m4a for better compatibility
-		// m4a is widely supported (iTunes, Windows Media Player, Soundpad, etc.)
-		args = append(args,
-			"--extract-audio",       // Extract/process as audio
-			"--audio-format", "m4a", // Convert to m4a (AAC codec)
-			"--audio-quality", "0",  // Best quality
-		)
+	if s.cookiesFile != "" {
+		if _, err := os.Stat(s.cookiesFile); err == nil {
+			args = append(args, "--cookies", s.cookiesFile)
+		}
+	}
+
+	if s.proxyURL != "" {
+		args = append(args, "--proxy", s.proxyURL)
 	}
 
 	args = append(args, url)
 
 	cmd := exec.CommandContext(ctx, s.ytdlpPath, args...)
-	cmd.Stderr = os.Stderr // Log errors
+	cmd.Stdout = w
+	cmd.Stderr = os.Stderr
 
-	output, err := cmd.Output()
+	filename, _ = s.GetFilename(ctx, url, formatID)
+	if filename == "" {
+		filename = "video.mp4"
+	}
+
+	err = cmd.Run()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", "", fmt.Errorf("download failed: %s", string(exitErr.Stderr))
-		}
-		return "", "", fmt.Errorf("download failed: %w", err)
+		return filename, fmt.Errorf("stream failed: %w", err)
 	}
 
-	// Parse output to find downloaded file path
-	// yt-dlp prints the destination path
-	outputStr := string(output)
-	_ = outputStr
-
-	// Find the downloaded file by pattern
-	pattern := filepath.Join(tempDir, fmt.Sprintf("%d_*", timestamp))
-	matches, err := filepath.Glob(pattern)
-	if err != nil || len(matches) == 0 {
-		return "", "", fmt.Errorf("could not find downloaded file")
-	}
-
-	// Get the first match (should be only one)
-	filePath = matches[0]
-
-	// Extract filename without timestamp prefix
-	baseName := filepath.Base(filePath)
-	// Remove timestamp prefix (format: "1234567890_")
-	parts := strings.SplitN(baseName, "_", 2)
-	if len(parts) > 1 {
-		filename = parts[1]
-	} else {
-		filename = baseName
-	}
-
-	// Verify file exists and has content
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", "", fmt.Errorf("downloaded file not found: %w", err)
-	}
-	if fileInfo.Size() == 0 {
-		os.Remove(filePath)
-		return "", "", fmt.Errorf("downloaded file is empty")
-	}
-
-	return filePath, filename, nil
+	return filename, nil
 }
 
 func (s *YtDlpService) GetBestFormats(formats []Format) []Format {

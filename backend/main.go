@@ -33,11 +33,12 @@ func main() {
 		"authRequired", cfg.AuthRequired,
 		"maxConcurrent", cfg.MaxConcurrent,
 		"rateLimitRPM", cfg.RateLimitRPM,
+		"proxyConfigured", cfg.ProxyURL != "",
 	)
 
 	// Initialize services
 	validator := services.NewValidator()
-	ytdlp := services.NewYtDlpService(cfg.YtDlpPath, validator)
+	ytdlp := services.NewYtDlpService(cfg.YtDlpPath, cfg.CookiesFile, cfg.ProxyURL, validator)
 	semaphore := services.NewSemaphore(cfg.MaxConcurrent)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
@@ -45,7 +46,7 @@ func main() {
 	healthHandler := handlers.NewHealthHandler(cfg.YtDlpPath)
 	configHandler := handlers.NewConfigHandler(cfg)
 	analyzeHandler := handlers.NewAnalyzeHandler(ytdlp, logger)
-	downloadHandler := handlers.NewDownloadHandler(ytdlp, semaphore, logger)
+	downloadHandler := handlers.NewDownloadHandler(ytdlp, semaphore, logger, cfg.ProxyURL)
 	thumbnailHandler := handlers.NewThumbnailHandler(logger)
 
 	// Initialize router

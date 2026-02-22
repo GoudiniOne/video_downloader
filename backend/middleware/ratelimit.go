@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,12 +61,27 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = forwarded
+			// X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+			// Take the first one (original client)
+			if idx := strings.Index(forwarded, ","); idx != -1 {
+				ip = strings.TrimSpace(forwarded[:idx])
+			} else {
+				ip = strings.TrimSpace(forwarded)
+			}
+		}
+		// Strip port from IP if present (e.g., "192.168.1.1:12345" -> "192.168.1.1")
+		if idx := strings.LastIndex(ip, ":"); idx != -1 {
+			// Check if this looks like IPv6 (contains multiple colons)
+			if strings.Count(ip, ":") == 1 {
+				ip = ip[:idx]
+			}
 		}
 
 		limiter := rl.getVisitor(ip)
 		if !limiter.Allow() {
-			http.Error(w, `{"error": "Too many requests. Please wait a moment."}`, http.StatusTooManyRequests)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, `{"error": "Слишком много запросов. Подождите минуту."}`, http.StatusTooManyRequests)
 			return
 		}
 
